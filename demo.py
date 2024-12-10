@@ -26,6 +26,7 @@ else:
 
 palm_detector = BlazePalm().to(gpu)
 palm_detector.load_weights("blazepalm.pth")
+# print(palm_detector)
 palm_detector.load_anchors("anchors_palm.npy")
 palm_detector.min_score_thresh = .75
 
@@ -35,8 +36,8 @@ hand_regressor.load_weights("blazehand_landmark.pth")
 face_regressor = BlazeFaceLandmark().to(gpu)
 face_regressor.load_weights("blazeface_landmark.pth")
 
-
-WINDOW='test'
+# sys.exit()
+WINDOW = 'test'
 cv2.namedWindow(WINDOW)
 if len(sys.argv) > 1:
     capture = cv2.VideoCapture(sys.argv[1])
@@ -52,54 +53,52 @@ else:
     hasFrame = False
 
 while hasFrame:
-    frame_ct +=1
+    frame_ct += 1
 
     if mirror_img:
-        frame = np.ascontiguousarray(frame[:,::-1,::-1])
+        frame = np.ascontiguousarray(frame[:, ::-1, ::-1])
     else:
-        frame = np.ascontiguousarray(frame[:,:,::-1])
+        frame = np.ascontiguousarray(frame[:, :, ::-1])
 
     img1, img2, scale, pad = resize_pad(frame)
 
-    if back_detector:
-        normalized_face_detections = face_detector.predict_on_image(img1)
-    else:
-        normalized_face_detections = face_detector.predict_on_image(img2)
+    # if back_detector:
+    #     normalized_face_detections = face_detector.predict_on_image(img1)
+    # else:
+    #     normalized_face_detections = face_detector.predict_on_image(img2)
     normalized_palm_detections = palm_detector.predict_on_image(img1)
 
-    face_detections = denormalize_detections(normalized_face_detections, scale, pad)
+    # face_detections = denormalize_detections(normalized_face_detections, scale, pad)
     palm_detections = denormalize_detections(normalized_palm_detections, scale, pad)
-
-
-    xc, yc, scale, theta = face_detector.detection2roi(face_detections.cpu())
-    img, affine, box = face_regressor.extract_roi(frame, xc, yc, theta, scale)
-    flags, normalized_landmarks = face_regressor(img.to(gpu))
-    landmarks = face_regressor.denormalize_landmarks(normalized_landmarks.cpu(), affine)
-
+    print(palm_detections)
+    # xc, yc, scale, theta = face_detector.detection2roi(face_detections.cpu())
+    # img, affine, box = face_regressor.extract_roi(frame, xc, yc, theta, scale)
+    # flags, normalized_landmarks = face_regressor(img.to(gpu))
+    # landmarks = face_regressor.denormalize_landmarks(normalized_landmarks.cpu(), affine)
 
     xc, yc, scale, theta = palm_detector.detection2roi(palm_detections.cpu())
     img, affine2, box2 = hand_regressor.extract_roi(frame, xc, yc, theta, scale)
     flags2, handed2, normalized_landmarks2 = hand_regressor(img.to(gpu))
     landmarks2 = hand_regressor.denormalize_landmarks(normalized_landmarks2.cpu(), affine2)
-    
 
-    for i in range(len(flags)):
-        landmark, flag = landmarks[i], flags[i]
-        if flag>.5:
-            draw_landmarks(frame, landmark[:,:2], FACE_CONNECTIONS, size=1)
-
+    # for i in range(len(flags)):
+    #     landmark, flag = landmarks[i], flags[i]
+    #     if flag>.5:
+    #         draw_landmarks(frame, landmark[:,:2], FACE_CONNECTIONS, size=1)
 
     for i in range(len(flags2)):
         landmark, flag = landmarks2[i], flags2[i]
-        if flag>.5:
-            draw_landmarks(frame, landmark[:,:2], HAND_CONNECTIONS, size=2)
+        if flag > .5:
+            draw_landmarks(frame, landmark[:, :2], HAND_CONNECTIONS, size=2)
 
-    draw_roi(frame, box)
+    # draw_roi(frame, box)
     draw_roi(frame, box2)
-    draw_detections(frame, face_detections)
+    # if not xc and not yc:
+    #     cv2.circle(frame, (int(xc[0].item()), int(yc[0].item())), 10, (0, 0, 255), -1)
+    # draw_detections(frame, face_detections)
     draw_detections(frame, palm_detections)
 
-    cv2.imshow(WINDOW, frame[:,:,::-1])
+    cv2.imshow(WINDOW, frame[:, :, ::-1])
     # cv2.imwrite('sample/%04d.jpg'%frame_ct, frame[:,:,::-1])
 
     hasFrame, frame = capture.read()
