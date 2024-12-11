@@ -180,32 +180,66 @@ class BlazeLandmark(BlazeBase):
         # shape theta
         # (-1, 1, 1)  -1：在 view 操作中，-1 表示 "自动推导"。PyTorch 会根据张量的总元素数自动计算该维度的大小，使得总的元素个数保持不变。例如，如果原始张量有 3 个元素，-1 会被替换为 3。
         theta = theta.view(-1, 1, 1)
+        # 二维旋转矩阵（2D rotation matrix）
+        # R = [[cosθ,−sinθ]
+        #      [sinθ,cosθ]]
 
         R = torch.cat((
             torch.cat((torch.cos(theta), -torch.sin(theta)), 2),
             torch.cat((torch.sin(theta), torch.cos(theta)), 2),
         ), 1)
         center = torch.cat((xc.view(-1, 1, 1), yc.view(-1, 1, 1)), 1)
-        # 用R矩阵旋转points矩阵，用center矩阵来平移points矩阵
+        # 用R矩阵旋转points矩阵，用center矩阵来平移points矩阵()
         points = R @ points + center
 
         # use the points to compute the affine transform that maps 
         # these points back to the output square
+        # 使用这些点计算仿射变换，将这些点映射回输出方块
+
+        # resolution = 256
         res = self.resolution
+        # points1 : [[0,0],
+        #            [0,255],
+        #            [255,0]]
         points1 = np.array([[0, 0, res - 1],
                             [0, res - 1, 0]], dtype=np.float32).T
         affines = []
         imgs = []
+
+        # points.shape[0] = obj = batch = hand num
+        # points [n,2,4] 表示单个框四个角的坐标
         for i in range(points.shape[0]):
+            # 取前三列并转置 (T) [1,2,4]->[3,2]
             pts = points[i, :, :3].cpu().numpy().T
+            # 在 OpenCV 中，cv2.getAffineTransform 是一个用于计算仿射变换矩阵的函数。
+            # 具体来说，它接受两个点集，使用这两个点集之间的对应关系来计算仿射变换矩阵（2x3 矩阵）。仿射变换包括平移、旋转、缩放和剪切等操作。
+            # pts：原始点集，通常是一个形状为 (3, 2) 的 NumPy 数组。它包含三个点的坐标，代表输入图像中的对应点。
+            # points1：目标点集，形状也是 (3, 2) 的 NumPy 数组。它包含三个点的坐标，表示目标图像中的对应点。
+            # M：返回的仿射变换矩阵，形状为 (2, 3)，它是从 pts 到 points1 的仿射变换矩阵。
             M = cv2.getAffineTransform(pts, points1)
+            # cv2.warpAffine 是 OpenCV 中用于应用仿射变换的函数，它使用一个 2x3 的仿射变换矩阵将图像进行变换。
+            # 这个函数将图像按照给定的矩阵进行旋转、缩放、平移等仿射变换。
+            # frame：输入图像（numpy.ndarray）。这是我们要对其进行仿射变换的图像。
+            # M：2x3 仿射变换矩阵（numpy.ndarray）。该矩阵由 cv2.getAffineTransform 或其他方法生成。
+            # (res, res)：输出图像的尺寸，表示变换后图像的宽度和高度。这是一个元组 (width, height)，用于指定输出图像的大小。
             img = cv2.warpAffine(frame, M, (res, res))  # , borderValue=127.5)
+            # 这行代码将一个 NumPy 数组或其他类型的数据 img 转换为 PyTorch 的 tensor 对象，并将其移动到指定的设备上（如 GPU 或 CPU）。
             img = torch.tensor(img, device=scale.device)
             imgs.append(img)
+            # cv2.invertAffineTransform(M) 是 OpenCV 中的一个函数，用于计算给定仿射变换矩阵 M 的逆矩阵。
+            # 仿射变换的逆变换是指，将进行该变换后的图像再进行一次逆操作，使得图像恢复到原来的状态。
             affine = cv2.invertAffineTransform(M).astype('float32')
             affine = torch.tensor(affine, device=scale.device)
             affines.append(affine)
+
+            # show_image_opencv(img)
+            # show_image_opencv_raw(frame)
+
         if imgs:
+            # torch.stack() 会沿着一个新的维度（通常是第一个维度）将多个张量堆叠起来。
+            # 例如，如果 imgs 是一个包含 N 个 (H, W, C) 形状图像的列表，torch.stack(imgs) 会把它们堆叠成一个形状为 (N, H, W, C) 的张量。
+            # permute 用来重排张量的维度。
+            # permute(0, 3, 1, 2) 将张量的维度从 (N, H, W, C) 重新排列为 (N, C, H, W)，这通常是因为 PyTorch 对图像数据的期望输入格式是 (N, C, H, W)
             imgs = torch.stack(imgs).permute(0, 3, 1, 2).float() / 255.  # / 127.5 - 1.0
             affines = torch.stack(affines)
         else:
@@ -215,12 +249,58 @@ class BlazeLandmark(BlazeBase):
         return imgs, affines, points
 
     def denormalize_landmarks(self, landmarks, affines):
+        # 这段代码的主要功能是将标准化的关键点（landmarks）转换回原始空间中的关键点位置。
+        # affine 仿射变换的逆变换矩阵
         landmarks[:, :, :2] *= self.resolution
         for i in range(len(landmarks)):
             landmark, affine = landmarks[i], affines[i]
             landmark = (affine[:, :2] @ landmark[:, :2].T + affine[:, 2:]).T
             landmarks[i, :, :2] = landmark
         return landmarks
+
+
+def show_image_opencv_raw(image_path):
+    """
+    使用 OpenCV 显示图像
+    :param image_path: 图像文件路径
+    """
+    # # 读取图像
+    # image_path = image_path.to('cpu')
+    #
+    # image = image_path.numpy()
+    #
+    # image = image.astype('uint8')
+
+    # 显示图像
+    cv2.imshow('Image', image_path)
+
+    # 等待用户按键
+    cv2.waitKey(0)
+
+    # 关闭所有窗口
+    cv2.destroyAllWindows()
+
+
+def show_image_opencv(image_path):
+    """
+    使用 OpenCV 显示图像
+    :param image_path: 图像文件路径
+    """
+    # 读取图像
+    image_path = image_path.to('cpu')
+
+    image = image_path.numpy()
+
+    image = image.astype('uint8')
+
+    # 显示图像
+    cv2.imshow('Image', image)
+
+    # 等待用户按键
+    cv2.waitKey(0)
+
+    # 关闭所有窗口
+    cv2.destroyAllWindows()
 
 
 class BlazeDetector(BlazeBase):
